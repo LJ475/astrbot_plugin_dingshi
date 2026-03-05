@@ -6,7 +6,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import *
 
-@register("advanced_timer", "YourName", "增强版定时提醒", "1.2.0")
+@register("advanced_timer", "YourName", "增强版定时提醒", "1.2.1")
 class MyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -16,15 +16,13 @@ class MyPlugin(Star):
         # 1. 获取指令后的纯文本
         raw_text = event.message_str.replace("/提醒我", "").strip()
         
-        # 如果用户只发了 "/提醒我"，弹出快捷选项（按钮形式）
+        # 如果用户只发了 "/提醒我"，弹出帮助提示
         if not raw_text:
             yield event.chain_result([
                 Plain("💡 想要我什么时候提醒你？\n格式：/提醒我 10s 喝水\n\n"),
-                # 下面是模拟按钮逻辑，如果平台支持会显示为按钮，不支持则为纯文本
-                Plain("快捷设置：\n"),
+                Plain("快捷示例：\n"),
                 Plain("👉 /提醒我 1m 喝水\n"),
-                Plain("👉 /提醒我 10m 休息\n"),
-                Plain("👉 /提醒我 1h 开会")
+                Plain("👉 /提醒我 2026-03-05 22:00 睡觉")
             ])
             return
 
@@ -32,9 +30,7 @@ class MyPlugin(Star):
         remind_content = ""
 
         # 2. 尝试解析时间
-        # 匹配相对时间 (10s, 5m, 1h)
         rel_match = re.search(r"(\d+)([smh秒分时])", raw_text)
-        # 匹配绝对时间 (2026-03-05 22:00)
         abs_match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", raw_text)
 
         if rel_match:
@@ -64,24 +60,27 @@ class MyPlugin(Star):
 
         user_name = event.get_sender_name()
         
-        # 4. 关键：保存当前的事件上下文，用于稍后主动推送
-        # 这样即使 yield 失效了，主动推送也能发出去
-        unified_msg_event = event.unified_msg_event 
+        # 4. 先立即回复确认消息
+        yield event.plain_result(f"✅ 好的 {user_name}，提醒已设置成功！\n📅 内容：{remind_content}\n⏳ 将在 {int(delay_seconds)} 秒后提醒。")
+        
+        # 5. 使用 create_task 在后台运行倒计时，防止阻塞
+        asyncio.create_task(self.do_remind(event, delay_seconds, remind_content))
 
-        yield event.plain_result(f"✅ 好的 {user_name}，提醒已设置成功！\n📅 提醒内容：{remind_content}\n⏳ 倒计时：{int(delay_seconds)}秒")
+    async def do_remind(self, event: AstrMessageEvent, delay: float, content: str):
+        """后台倒计时任务"""
+        await asyncio.sleep(delay)
         
-        # 5. 异步等待
-        await asyncio.sleep(delay_seconds)
-        
-        # 6. 使用 context 主动推送消息
-        # 这种方式比 yield 更可靠，能穿透复杂的网络环境
+        # 6. 使用 event.send 方法主动推送
+        # 这种方式最稳妥，不会报 attribute error
         try:
-            await self.context.send_message(unified_msg_event, [
-                At(qq=event.get_sender_id()), # 艾特用户，增强弹窗提醒感
-                Plain(f"\n🔔 提醒时间到！\n📝 内容：{remind_content}")
-            ])
+            # 构造提醒消息：艾特用户 + 内容
+            chain = [
+                At(qq=event.get_sender_id()), 
+                Plain(f"\n🔔 提醒时间到！\n📝 内容：{content}")
+            ]
+            await event.send(event.chain_result(chain))
         except Exception as e:
-            logger.error(f"提醒发送失败: {e}")
+            logger.error(f"发送提醒失败: {e}")
 
     async def terminate(self):
         pass
