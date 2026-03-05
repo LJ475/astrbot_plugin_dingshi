@@ -1,24 +1,34 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+import asyncio # 引入异步 IO 库
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
+@register("timer_msg", "YourName", "10秒延迟回复插件", "1.0.0")
 class MyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
+    @filter.command("提醒我")
+    async def timer_command(self, event: AstrMessageEvent):
+        """发送：/提醒我 [内容]，机器人会在 10 秒后回复"""
+        
+        # 1. 获取用户想说的话（去掉指令部分）
+        # message_str 通常包含 "/提醒我 xxx"，我们把指令前缀去掉
+        content = event.message_str.replace("/提醒我", "").strip()
+        if not content:
+            content = "时间到啦！"
+            
         user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!，说的话就是大家") # 发送一条纯文本消息
+        
+        # 2. 先给用户一个即时反馈，告诉他任务已创建
+        yield event.plain_result(f"好的 {user_name}，我已经记下了。10秒后我会提醒你：{content}")
+
+        # 3. 异步等待 10 秒（不会卡住整个机器人）
+        await asyncio.sleep(10)
+
+        # 4. 时间到，发送第二条消息
+        # 注意：这里继续使用 yield 发送结果
+        yield event.plain_result(f"🔔 嘿 {user_name}，10秒到了！你之前让我提醒你：{content}")
 
     async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        pass
