@@ -6,26 +6,27 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import *
 
-@register("simple_timer", "YourName", "全通用定时提醒", "1.4.0")
+@register("simple_timer", "YourName", "全通用定时提醒", "1.4.1")
 class MyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
 
-    # 当用户输入“定时”时，触发“模拟弹窗”引导
-    @filter.on_keyword("定时")
+    # 使用普通的 command 装饰器。用户输入 /定时 也能看到帮助
+    @filter.command("定时")
     async def timer_guide(self, event: AstrMessageEvent):
+        """发送 /定时 获取使用帮助"""
         user_name = event.get_sender_name()
         guide_text = (
             f"🔔 {user_name}，欢迎使用定时功能！\n"
             "--------------------------\n"
-            "请复制下方指令并修改内容：\n\n"
+            "请按照以下格式输入指令：\n\n"
             "1️⃣ 快速提醒：\n"
             "   /提醒我 10s 喝水\n"
             "   /提醒我 5m 休息一下\n\n"
-            "2️⃣ 精确时间（年月日）：\n"
+            "2️⃣ 精确时间：\n"
             "   /提醒我 2026-03-05 22:30 睡觉\n"
             "--------------------------\n"
-            "💡 直接发送指令即可设置。"
+            "💡 直接发送对应指令即可设置。"
         )
         yield event.plain_result(guide_text)
 
@@ -41,9 +42,8 @@ class MyPlugin(Star):
         delay_seconds = 0
         remind_content = ""
 
-        # 正则解析：相对时间 (数字 + s/m/h/秒/分/时)
+        # 正则解析逻辑
         rel_match = re.search(r"(\d+)([smh秒分时])", raw_text)
-        # 正则解析：绝对时间 (YYYY-MM-DD HH:MM)
         abs_match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", raw_text)
 
         if rel_match:
@@ -62,7 +62,7 @@ class MyPlugin(Star):
                 yield event.plain_result("❌ 日期格式不对，请按 YYYY-MM-DD HH:MM 输入")
                 return
         else:
-            yield event.plain_result("⚠️ 格式没认出来，请参考‘定时’说明。")
+            yield event.plain_result("⚠️ 格式没认出来。发送 /定时 查看正确格式。")
             return
 
         if delay_seconds <= 0:
@@ -72,19 +72,18 @@ class MyPlugin(Star):
         user_name = event.get_sender_name()
         yield event.plain_result(f"✅ 设置成功！将在 {int(delay_seconds)} 秒后提醒：{remind_content}")
         
-        # 核心：启动后台异步倒计时
+        # 启动后台异步任务
         asyncio.create_task(self.execute_remind(event, delay_seconds, remind_content))
 
     async def execute_remind(self, event: AstrMessageEvent, delay: float, content: str):
         """倒计时结束后执行提醒"""
         await asyncio.sleep(delay)
         try:
-            # 构造包含 @用户 的消息链
+            # 这里的 event.send 是最安全的推送方式
             chain = [
                 At(qq=event.get_sender_id()), 
                 Plain(f"\n🔔 时间到！提醒内容：\n{content}")
             ]
-            # 使用 event.send 确保消息发送成功
             await event.send(event.chain_result(chain))
         except Exception as e:
             logger.error(f"提醒推送失败: {e}")
