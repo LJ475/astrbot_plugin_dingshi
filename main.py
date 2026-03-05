@@ -12,49 +12,56 @@ class MyPlugin(Star):
 
     @filter.command("提醒我")
     async def timer_command(self, event: AstrMessageEvent):
-        """
-        格式1: /提醒我 10s 喝水 (支持 s, m, h)
-        格式2: /提醒我 2026-05-20 13:14 告白
-        """
-        msg = event.message_str.replace("/提醒我", "").strip()
-        if not msg:
-            yield event.plain_result("请输入内容！格式：/提醒我 [时间] [内容]\n示例：/提醒我 10s 泡面")
+        # 1. 获取指令后的纯文本并去除首尾空格
+        raw_text = event.message_str.replace("/提醒我", "").strip()
+        
+        if not raw_text:
+            yield event.plain_result("💡 格式错误！试试：\n/提醒我 10s 喝水\n/提醒我 2026-03-05 22:00 睡觉")
             return
-
-        # 1. 尝试解析 相对时间 (例如 10s, 5m)
-        relative_match = re.match(r"^(\d+)([smh秒分时])\s+(.*)$", msg)
-        # 2. 尝试解析 具体日期 (例如 2026-05-20 13:14)
-        absolute_match = re.match(r"^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})\s+(.*)$", msg)
 
         delay_seconds = 0
         remind_content = ""
 
-        if relative_match:
-            value, unit, remind_content = relative_match.groups()
+        # 2. 尝试解析【相对时间】：匹配 10s, 5m, 1h 等
+        # \d+ 匹配数字，[smh秒分时] 匹配单位
+        relative_pattern = r"(\d+)([smh秒分时])"
+        rel_match = re.search(relative_pattern, raw_text)
+
+        if rel_match:
+            value = int(rel_match.group(1))
+            unit = rel_match.group(2)
             unit_map = {'s': 1, '秒': 1, 'm': 60, '分': 60, 'h': 3600, '时': 3600}
-            delay_seconds = int(value) * unit_map.get(unit, 1)
+            delay_seconds = value * unit_map.get(unit, 1)
+            # 把时间部分删掉，剩下的就是提醒内容
+            remind_content = raw_text.replace(rel_match.group(0), "").strip()
         
-        elif absolute_match:
-            time_str, remind_content = absolute_match.groups()
-            try:
-                target_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-                delay_seconds = (target_time - datetime.now()).total_seconds()
-            except ValueError:
-                yield event.plain_result("日期格式错啦！请使用: YYYY-MM-DD HH:MM")
-                return
+        # 3. 如果不是相对时间，尝试解析【年月日】
         else:
-            yield event.plain_result("格式没对上，试试：\n/提醒我 10s 喝水\n/提醒我 2026-01-01 12:00 元旦快乐")
+            # 匹配 2026-03-05 20:00 这种格式
+            abs_pattern = r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})"
+            abs_match = re.search(abs_pattern, raw_text)
+            if abs_match:
+                time_str = abs_match.group(1)
+                try:
+                    target_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+                    delay_seconds = (target_time - datetime.now()).total_seconds()
+                    remind_content = raw_text.replace(time_str, "").strip()
+                except ValueError:
+                    yield event.plain_result("❌ 日期格式不对，请按 YYYY-MM-DD HH:MM 格式输入")
+                    return
+            else:
+                yield event.plain_result("🤔 我没听懂时间，请用 '10s' 或 '2026-03-05 20:00' 这种格式")
+                return
+
+        # 4. 逻辑校验
+        if not remind_content: remind_content = "时间到啦！"
+        if delay_seconds <= 0:
+            yield event.plain_result("⏰ 这个时间已经过去了哦！")
             return
 
-        if delay_seconds < 0:
-            yield event.plain_result("这个时间已经过去啦！")
-            return
-
+        # 5. 执行提醒
         user_name = event.get_sender_name()
-        yield event.plain_result(f"✅ 没问题 {user_name}，已开启倒计时（约 {int(delay_seconds)} 秒后提醒）。")
-
-        # 异步等待
+        yield event.plain_result(f"✅ 好的 {user_name}，已开启倒计时，提醒内容：{remind_content}")
+        
         await asyncio.sleep(delay_seconds)
-
-        # 提醒
-        yield event.plain_result(f"🔔 时间到！{user_name}\n内容：{remind_content}")
+        yield event.plain_result(f"🔔 {user_name}，提醒时间到！\n内容：{remind_content}")
